@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pokémon Explorer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <style>
+    /* Set the background image */
+    body {
+      background-image: url('{{ url_for('static', filename='pokemon-background.jpg') }}');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+      color: white; /* Text color for contrast */
+      transition: background-color 0.3s ease, color 0.3s ease;
+      height: 100vh; /* Full height */
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Overlay for Dark Mode */
+    .dark-mode {
+      background-color: rgba(0, 0, 0, 0.7); /* Dark overlay */
+      color: white;
+    }
+
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7); /* Dark overlay */
+      z-index: -1; /* Send overlay behind content */
+      opacity: 0; /* Hidden by default */
+      transition: opacity 0.3s ease;
+    }
+
+    .dark-mode .overlay {
+      opacity: 1; /* Show overlay in dark mode */
+    }
+
+    /* Type badge styling */
+    .type-badge {
+      margin-right: 5px;
+      padding: 5px 10px;
+      border-radius: 15px;
+      color: white;
+      font-weight: bold;
+      text-transform: capitalize;
+    }
+
+    .card-container {
+      perspective: 1000px;
+      width: 22rem;
+      height: 32rem;
+    }
+
+    .card-flip {
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      transition: transform 0.8s;
+      position: relative;
+    }
+
+    .card-container:hover .card-flip {
+      transform: rotateY(180deg);
+    }
+
+    .card-front, .card-back {
+      backface-visibility: hidden;
+      position: absolute;
+      width: 100%;
+      height: 100%;
+    }
+
+    .card-back {
+      transform: rotateY(180deg);
+      background-color: #f1f1f1;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body class="p-4">
+  <div class="overlay"></div>
+
+  <div class="container text-center">
+    <h1 class="mb-4">Pokémon Explorer</h1>
+
+    <div class="input-group mb-4">
+      <input type="text" id="searchInput" class="form-control" placeholder="Enter Pokémon name or ID">
+      <button class="btn btn-primary" onclick="searchPokemon()">Search</button>
+    </div>
+
+    <button class="btn btn-dark mb-3 me-2" onclick="toggleDarkMode()">🌙 Toggle Dark Mode</button>
+    <button class="btn btn-warning mb-3" onclick="showFavorites()">⭐ Show Favorites</button>
+
+    <div class="text-center" id="loader" style="display: none;">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+
+    <div id="pokemonContainer" class="d-flex justify-content-center flex-wrap gap-4 mt-3"></div>
+  </div>
+
+  <audio id="clickSound" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
+
+  <script>
+    const typeColors = {
+      fire: '#f08030', water: '#6890f0', grass: '#78c850', electric: '#f8d030',
+      psychic: '#f85888', normal: '#a8a878', flying: '#a890f0', bug: '#a8b820',
+      poison: '#a040a0', ground: '#e0c068', rock: '#b8a038', ghost: '#705898',
+      ice: '#98d8d8', dragon: '#7038f8', dark: '#705848', steel: '#b8b8d0',
+      fairy: '#ee99ac', fighting: '#c03028'
+    };
+
+    function toggleDarkMode() {
+      document.body.classList.toggle("dark-mode");
+    }
+
+    async function searchPokemon() {
+      const name = document.getElementById("searchInput").value.toLowerCase().trim();
+      if (!name) return;
+
+      document.getElementById("clickSound").play();
+      document.getElementById("loader").style.display = 'block';
+
+      try {
+        const res = await fetch(`/api/pokemon?query=${name}`);
+        const data = await res.json();
+
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+
+        document.getElementById("pokemonContainer").innerHTML = '';
+        displayPokemon(data);
+        displayEvolutionChain(data.name);
+      } catch (err) {
+        alert("Failed to fetch Pokémon");
+      } finally {
+        document.getElementById("loader").style.display = 'none';
+      }
+    }
+
+    function displayPokemon(pokemon) {
+      const container = document.getElementById("pokemonContainer");
+
+      const cardHTML = `
+        <div class="card-container">
+          <div class="card-flip">
+            <div class="card shadow card-front">
+              <img src="${pokemon.sprites.other['official-artwork'].front_default}" class="card-img-top" alt="${pokemon.name}">
+              <div class="card-body">
+                <h3 class="card-title text-capitalize">${pokemon.name}</h3>
+                <div class="mb-2">
+                  ${pokemon.types.map(t => `
+                    <span class="type-badge" style="background-color: ${typeColors[t.type.name] || '#777'}">${t.type.name}</span>
+                  `).join('')}
+                </div>
+                <p><strong>HP:</strong> ${pokemon.stats[0].base_stat}</p>
+                <p><strong>Attack:</strong> ${pokemon.stats[1].base_stat}</p>
+                <p><strong>Defense:</strong> ${pokemon.stats[2].base_stat}</p>
+              </div>
+            </div>
+
+            <div class="card shadow card-back">
+              <h5>Abilities:</h5>
+              <p>${pokemon.abilities.map(a => a.ability.name).join(', ')}</p>
+              <h5>Moves:</h5>
+              <p>${pokemon.moves.slice(0, 5).map(m => m.move.name).join(', ')}</p>
+              <div id="evolutionChain" class="mt-3"></div>
+              <button class="btn btn-outline-warning mt-2" onclick="addToFavorites('${pokemon.name}')">⭐ Add to Favorites</button>
+              <button class="btn btn-outline-danger mt-2" onclick="removeFromFavorites('${pokemon.name}')">❌ Remove from Favorites</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = cardHTML;
+    }
+
+    async function displayEvolutionChain(name) {
+      try {
+        const res = await fetch(`/api/evolution?query=${name}`);
+        const data = await res.json();
+
+        if (data.error) return;
+
+        const chain = [];
+        let evoData = data.chain;
+
+        while (evoData) {
+          chain.push(evoData.species.name);
+          evoData = evoData.evolves_to[0];
+        }
+
+        const evoHTML = `
+          <h5>Evolution Chain:</h5>
+          <p>${chain.map(n => capitalize(n)).join(' → ')}</p>
+        `;
+        document.getElementById("evolutionChain").innerHTML = evoHTML;
+      } catch (err) {
+        console.error("Failed to fetch evolution data", err);
+      }
+    }
+
+    function addToFavorites(name) {
+      let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+      if (!favorites.includes(name)) {
+        favorites.push(name);
+        localStorage.setItem('favorites', JSON.stringify(favorites));
+        alert(`${capitalize(name)} added to favorites!`);
+      } else {
+        alert(`${capitalize(name)} is already in favorites.`);
+      }
+    }
+
+    function removeFromFavorites(name) {
+      let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+      if (favorites.includes(name)) {
+        favorites = favorites.filter(n => n !== name);
+        localStorage.setItem('favorites', JSON.stringify(favorites));
+        alert(`${capitalize(name)} removed from favorites.`);
+      } else {
+        alert(`${capitalize(name)} is not in favorites.`);
+      }
+    }
+
+    function showFavorites() {
+      const favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+      if (favorites.length === 0) {
+        alert('No favorites yet!');
+        return;
+      }
+
+      document.getElementById("pokemonContainer").innerHTML = '';
+      favorites.forEach(name => {
+        fetch(`/api/pokemon?query=${name}`)
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) {
+              displayPokemon(data);
+              displayEvolutionChain(data.name);
+            }
+          });
+      });
+    }
+
+    function capitalize(str) {
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+  </script>
+</body>
+</html>
